@@ -1,7 +1,16 @@
 from flask import Flask
 from users import register_user, login_user
+from flask_sqlalchemy import SQLAlchemy
+from models import db
+
+#password is postgres123
+#port 5432
 
 app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://username:postgres123@localhost/databasename'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db.init_app(app)
 
 @app.route('/api/test')
 def test():
@@ -18,3 +27,4 @@ def login():
 
 if __name__ == '__main__':
     app.run(debug=True)
+

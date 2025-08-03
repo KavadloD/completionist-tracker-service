@@ -29,3 +29,30 @@ def get_checklist(game_id):
     } for item in items]
 
     return jsonify(checklist)
+
+
+def update_checklist_item(item_id):
+    data = request.get_json()
+    item = ChecklistItem.query.get(item_id)
+
+    if not item:
+        return jsonify({'message': 'Item not found'}), 404
+
+    item.description = data.get('description', item.description)
+    item.completed = data.get('completed', item.completed)
+    item.order = data.get('order', item.order)
+
+    db.session.commit()
+
+    return jsonify({'message': 'Checklist item updated'}), 200
+
+def delete_checklist_item(item_id):
+    item = ChecklistItem.query.get(item_id)
+
+    if not item:
+        return jsonify({'message': 'Item not found'}), 404
+
+    db.session.delete(item)
+    db.session.commit()
+
+    return jsonify({'message': 'Checklist item deleted'}), 200

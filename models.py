@@ -10,3 +10,23 @@ class User(db.Model):
 
     def __repr__(self):
         return f'<User {self.email}>'
+
+
+class Game(db.Model):
+    game_id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.user_id'), nullable=False)
+    title = db.Column(db.String(100), nullable=False)
+    platform = db.Column(db.String(100))
+    genre = db.Column(db.String(100))
+
+    user = db.relationship('User', backref='games')
+
+
+class ChecklistItem(db.Model):
+    checklist_item_id = db.Column(db.Integer, primary_key=True)
+    game_id = db.Column(db.Integer, db.ForeignKey('game.game_id'), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    completed = db.Column(db.Boolean, default=False)
+    order = db.Column(db.Integer)
+
+    game = db.relationship('Game', backref='checklist_items')

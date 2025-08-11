@@ -3,39 +3,47 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from models import User, db
 
 def register_user():
-    data = request.get_json() or {}
-    username = data.get('username')
-    email = data.get('email')
-    password = data.get('password')
+    data = request.get_json(silent=True) or {}
+    username = (data.get('username') or '').strip()
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
 
-    # Validate required fields FIRST
-    if not all([username, email, password]):
+    if not username or not email or not password:
         return jsonify({'message': 'username, email, and password are required'}), 400
 
-    # Optional: deny duplicate emails (your column is unique, but this avoids a 500)
-    if User.query.filter_by(email=email).first():
+    # use db.select(...) instead of User.query for 3.x compatibility
+    existing = db.session.execute(
+        db.select(User).filter_by(email=email)
+    ).scalar_one_or_none()
+    if existing:
         return jsonify({'message': 'email already registered'}), 409
 
-    hashed_pw = generate_password_hash(password)
-    user = User(username=username, email=email, password_hash=hashed_pw)
-
+    user = User(
+        username=username,
+        email=email,
+        password_hash=generate_password_hash(password)
+    )
     db.session.add(user)
     db.session.commit()
 
-    return jsonify({'message': f'Registration successful for {username}'}), 201
+    # returning user_id makes the frontend and Postman life easier
+    return jsonify({'message': 'Registration successful', 'user_id': user.user_id}), 201
 
 
 def login_user():
-    data = request.get_json() or {}
-    email = data.get('email')
-    password = data.get('password')
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').strip().lower()
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
 
-    if not all([email, password]):
-        return jsonify({'message': 'email and password are required'}), 400
+    if not password or not (email or username):
+        return jsonify({'message': 'email or username and password required'}), 400
 
-    user = User.query.filter_by(email=email).first()
+    q = db.select(User)
+    q = q.filter_by(email=email) if email else q.filter_by(username=username)
 
-    if user and check_password_hash(user.password_hash, password):
-        return jsonify({'message': 'Login successful'}), 200
-    else:
+    user = db.session.execute(q).scalar_one_or_none()
+    if not user or not check_password_hash(user.password_hash, password):
         return jsonify({'message': 'Invalid email or password'}), 401
+
+    return jsonify({'message': 'Logged in', 'user_id': user.user_id}), 200

@@ -106,6 +106,45 @@ def get_game(game_id):
         }
     )
 
+@app.route('/api/games/<int:game_id>', methods=['PATCH', 'PUT'])
+def update_game(game_id):
+    game = db.session.get(Game, game_id)
+    if not game:
+        return jsonify({'message': 'Game not found'}), 404
+
+    data = request.get_json(silent=True) or {}
+    changed = False
+
+    if 'title' in data:
+        title = (data.get('title') or '').strip()
+        if not title:
+            return jsonify({'message': 'title cannot be empty'}), 400
+        game.title = title
+        changed = True
+
+    if 'platform' in data:
+        platform = (data.get('platform') or '').strip()
+        game.platform = platform or None
+        changed = True
+
+    if 'genre' in data:
+        genre = (data.get('genre') or '').strip()
+        game.genre = genre or None
+        changed = True
+
+    if not changed:
+        return jsonify({'message': 'no changes provided'}), 400
+
+    db.session.commit()
+    return jsonify({
+        'game_id': game.game_id,
+        'user_id': game.user_id,
+        'title': game.title,
+        'platform': game.platform,
+        'genre': game.genre
+    }), 200
+
+
 
 @app.route("/api/games/<int:game_id>", methods=["DELETE"])
 def delete_game(game_id):

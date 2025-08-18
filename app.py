@@ -131,14 +131,14 @@ def add_game():
     game = Game(
         user_id=data['user_id'],
         title=data['title'],
-        platform=data['platform'],
-        genre=data['genre'],
+        platform=data.get('platform'),
+        genre=data.get('genre'),
         run_type=data.get('run_type'),
         tags=data.get('tags')
     )
     db.session.add(game)
     db.session.commit()
-    return jsonify({'message': 'Game added!'}), 201
+    return jsonify({'message': 'Game added!', 'game_id': game.game_id}), 201
 
 
 @app.route("/api/games/<int:game_id>", methods=["GET"])
@@ -147,15 +147,16 @@ def get_game(game_id):
     if not game:
         return jsonify({"message": "Game not found"}), 404
 
-    return jsonify(
-        {
-            "game_id": game.game_id,
-            "user_id": game.user_id,
-            "title": game.title,
-            "platform": game.platform,
-            "genre": game.genre,
-        }
-    )
+    return jsonify({
+        "game_id": game.game_id,
+        "user_id": game.user_id,
+        "title": game.title,
+        "platform": game.platform,
+        "genre": game.genre,
+        "run_type": game.run_type,
+        "tags": game.tags
+    })
+
 
 @app.route('/api/games/<int:game_id>', methods=['PATCH', 'PUT'])
 def update_game(game_id):
@@ -174,13 +175,19 @@ def update_game(game_id):
         changed = True
 
     if 'platform' in data:
-        platform = (data.get('platform') or '').strip()
-        game.platform = platform or None
+        game.platform = (data.get('platform') or '').strip() or None
         changed = True
 
     if 'genre' in data:
-        genre = (data.get('genre') or '').strip()
-        game.genre = genre or None
+        game.genre = (data.get('genre') or '').strip() or None
+        changed = True
+
+    if 'run_type' in data:
+        game.run_type = (data.get('run_type') or '').strip() or None
+        changed = True
+
+    if 'tags' in data:
+        game.tags = (data.get('tags') or '').strip() or None
         changed = True
 
     if not changed:
@@ -192,9 +199,10 @@ def update_game(game_id):
         'user_id': game.user_id,
         'title': game.title,
         'platform': game.platform,
-        'genre': game.genre
+        'genre': game.genre,
+        'run_type': game.run_type,
+        'tags': game.tags
     }), 200
-
 
 
 @app.route("/api/games/<int:game_id>", methods=["DELETE"])
@@ -215,43 +223,33 @@ def delete_game(game_id):
 @app.route("/api/games", methods=["GET"])
 def list_games():
     user_id = request.args.get("user_id", type=int)
-
     query = db.session.query(Game)
     if user_id is not None:
         query = query.filter_by(user_id=user_id)
 
     games = query.all()
 
-    return jsonify(
-        [
-            {
-                "game_id": g.game_id,
-                "user_id": g.user_id,
-                "title": g.title,
-                "platform": g.platform,
-                "genre": g.genre,
-            }
-            for g in games
-        ]
-    )
+    return jsonify([
+        {
+            "game_id": g.game_id,
+            "user_id": g.user_id,
+            "title": g.title,
+            "platform": g.platform,
+            "genre": g.genre,
+            "run_type": g.run_type,
+            "tags": g.tags
+        }
+        for g in games
+    ])
 
 
 @app.route("/api/games/<int:game_id>/progress", methods=["GET"])
 def game_progress(game_id):
-    # Ensure game exists
     if not db.session.get(Game, game_id):
         return jsonify({"message": "Game not found"}), 404
 
-    total = (
-        db.session.query(func.count(ChecklistItem.checklist_item_id))
-        .filter_by(game_id=game_id)
-        .scalar()
-    )
-    done = (
-        db.session.query(func.count(ChecklistItem.checklist_item_id))
-        .filter_by(game_id=game_id, completed=True)
-        .scalar()
-    )
+    total = db.session.query(func.count(ChecklistItem.checklist_item_id)).filter_by(game_id=game_id).scalar()
+    done = db.session.query(func.count(ChecklistItem.checklist_item_id)).filter_by(game_id=game_id, completed=True).scalar()
 
     total = int(total or 0)
     done = int(done or 0)

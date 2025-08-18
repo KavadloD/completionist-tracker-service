@@ -103,6 +103,19 @@ def seed_community():
     return {'message': 'Community checklist seeded'}
 
 
+@app.route('/admin/fix-schema', methods=['POST'])
+def fix_schema():
+    from sqlalchemy import text
+
+    try:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE game ADD COLUMN tags VARCHAR(255);"))
+            conn.execute(text("ALTER TABLE game ADD COLUMN run_type VARCHAR(100);"))
+        return jsonify({"message": "Schema updated successfully"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # --------- Checklist ---------
 @app.route("/api/games/<int:game_id>/checklist", methods=["GET"])
 def fetch_checklist(game_id):

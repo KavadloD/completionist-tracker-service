@@ -59,7 +59,7 @@ def seed_community():
 
     # Create a user manually
     hashed_pw = generate_password_hash("test123")
-    user = User(username="seed_user", hashed_password=hashed_pw)
+    user = User(username="seed_user", email="seed@example.com", password_hash=hashed_pw)
     db.session.add(user)
     db.session.commit()
 

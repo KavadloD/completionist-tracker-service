@@ -25,7 +25,6 @@ CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
 #password is postgres123
 #port 5432
 
-# Config: prefer env var, fall back to local dev default
 db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres123@localhost/completionist_db")
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
@@ -130,16 +129,16 @@ def delete_item(item_id):
 def add_game():
     data = request.get_json()
     game = Game(
-        user_id=data.get('user_id'),
-        title=data.get('title'),
-        platform=data.get('platform'),
-        genre=data.get('genre'),
+        user_id=data['user_id'],
+        title=data['title'],
+        platform=data['platform'],
+        genre=data['genre'],
         run_type=data.get('run_type'),
-        tags=data.get('tags')  # <-- add this line
+        tags=data.get('tags')
     )
     db.session.add(game)
     db.session.commit()
-    return jsonify({"game_id": game.game_id}), 201
+    return jsonify({'message': 'Game added!'}), 201
 
 
 @app.route("/api/games/<int:game_id>", methods=["GET"])
@@ -204,7 +203,6 @@ def delete_game(game_id):
     if not game:
         return jsonify({"message": "Game not found"}), 404
 
-    # Remove related checklist items explicitly. If you add ORM cascades, this can be simplified.
     db.session.query(ChecklistItem).filter_by(game_id=game_id).delete(
         synchronize_session=False
     )
@@ -298,8 +296,6 @@ def import_community_checklist(template_id):
     )
     db.session.add(new_game)
     db.session.commit()
-
-    # TODO: Copy checklist items in the future (when stored)
 
     return jsonify({
         "message": "Checklist imported",

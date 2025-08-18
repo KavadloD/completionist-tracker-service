@@ -12,6 +12,7 @@ from checklist import (
     delete_checklist_item,
 )
 from models import CommunityChecklist
+from werkzeug.security import generate_password_hash
 
 # App factory-style setup kept simple in a single file
 app = Flask(__name__)
@@ -57,7 +58,8 @@ def seed_community():
     from models import User, db, CommunityChecklist
 
     # Create a user manually
-    user = User(username="seed_user", password="test123")
+    hashed_pw = generate_password_hash("test123")
+    user = User(username="seed_user", hashed_password=hashed_pw)
     db.session.add(user)
     db.session.commit()
 

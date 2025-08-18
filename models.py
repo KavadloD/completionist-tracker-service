@@ -30,3 +30,14 @@ class ChecklistItem(db.Model):
     order = db.Column(db.Integer)
 
     game = db.relationship('Game', backref='checklist_items')
+    
+class CommunityChecklist(db.Model):
+    community_checklist_id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    platform = db.Column(db.String(100))
+    genre = db.Column(db.String(100))
+
+    # Optional: to track who created it
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey('user.user_id'))
+    created_by_user = db.relationship('User', backref='community_templates')

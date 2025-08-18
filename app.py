@@ -11,7 +11,7 @@ from checklist import (
     update_checklist_item,
     delete_checklist_item,
 )
-
+from models import CommunityChecklist
 
 # App factory-style setup kept simple in a single file
 app = Flask(__name__)
@@ -209,6 +209,50 @@ def game_progress(game_id):
 
     return jsonify({"game_id": game_id, "completed": done, "total": total, "percent": pct})
 
+# --------- Community ---------
+@app.route("/api/community", methods=["GET"])
+def list_community_checklists():
+    templates = CommunityChecklist.query.all()
+
+    return jsonify([
+        {
+            "community_checklist_id": t.community_checklist_id,
+            "title": t.title,
+            "description": t.description,
+            "platform": t.platform,
+            "genre": t.genre
+        }
+        for t in templates
+    ])
+
+@app.route("/api/community/import/<int:template_id>", methods=["POST"])
+def import_community_checklist(template_id):
+    data = request.get_json(silent=True) or {}
+    user_id = data.get("user_id")
+
+    if not user_id:
+        return jsonify({"message": "Missing user_id"}), 400
+
+    template = db.session.get(CommunityChecklist, template_id)
+    if not template:
+        return jsonify({"message": "Template not found"}), 404
+
+    # Create new Game entry
+    new_game = Game(
+        user_id=user_id,
+        title=template.title,
+        platform=template.platform,
+        genre=template.genre
+    )
+    db.session.add(new_game)
+    db.session.commit()
+
+    # TODO: Copy checklist items in the future (when stored)
+
+    return jsonify({
+        "message": "Checklist imported",
+        "new_game_id": new_game.game_id
+    }), 201
 
 # --------- Error Handlers ---------
 @app.errorhandler(404)

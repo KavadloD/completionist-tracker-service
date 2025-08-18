@@ -18,6 +18,8 @@ class Game(db.Model):
     title = db.Column(db.String(100), nullable=False)
     platform = db.Column(db.String(100))
     genre = db.Column(db.String(100))
+    tags = db.Column(db.String(255))
+    run_type = db.Column(db.String(100))  # <-- Add this line
 
     user = db.relationship('User', backref='games')
 
@@ -37,7 +39,8 @@ class CommunityChecklist(db.Model):
     description = db.Column(db.Text)
     platform = db.Column(db.String(100))
     genre = db.Column(db.String(100))
+    run_type = db.Column(db.String(100))  # Optional: type of run
+    tags = db.Column(db.String(255))      # Optional: tags like #speedrun, etc.
 
-    # Optional: to track who created it
     created_by_user_id = db.Column(db.Integer, db.ForeignKey('user.user_id'))
     created_by_user = db.relationship('User', backref='community_templates')

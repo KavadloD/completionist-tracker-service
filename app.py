@@ -1,5 +1,6 @@
 import os
 from flask import Flask, request, jsonify
+from flask_migrate import Migrate
 from flask_cors import CORS
 from sqlalchemy import func
 
@@ -35,6 +36,8 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # Bind SQLAlchemy
 db.init_app(app)
+
+migrate = Migrate(app, db)
 
 
 # --------- Health check ---------
@@ -123,23 +126,20 @@ def delete_item(item_id):
 
 
 # --------- Games ---------
-@app.route("/api/games", methods=["POST"])
+@app.route('/api/games', methods=['POST'])
 def add_game():
-    data = request.get_json(silent=True) or {}
-
-    user_id = data.get("user_id")
-    title = (data.get("title") or "").strip()
-    platform = (data.get("platform") or "").strip() or None
-    genre = (data.get("genre") or "").strip() or None
-
-    if user_id is None or not title:
-        return jsonify({"message": "user_id and title are required"}), 400
-
-    game = Game(user_id=user_id, title=title, platform=platform, genre=genre)
+    data = request.get_json()
+    game = Game(
+        user_id=data.get('user_id'),
+        title=data.get('title'),
+        platform=data.get('platform'),
+        genre=data.get('genre'),
+        run_type=data.get('run_type'),
+        tags=data.get('tags')  # <-- add this line
+    )
     db.session.add(game)
     db.session.commit()
-
-    return jsonify({"message": "Game added", "game_id": game.game_id}), 201
+    return jsonify({"game_id": game.game_id}), 201
 
 
 @app.route("/api/games/<int:game_id>", methods=["GET"])

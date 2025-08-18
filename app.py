@@ -52,6 +52,13 @@ def register():
 def login():
     return login_user()
 
+@app.route('/api/init')
+def init_db():
+    from create_tables import db
+    db.create_all()
+    return {'message': 'Tables created'}
+
+
 
 # --------- Checklist ---------
 @app.route("/api/games/<int:game_id>/checklist", methods=["GET"])

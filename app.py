@@ -223,24 +223,27 @@ def delete_game(game_id):
 @app.route("/api/games", methods=["GET"])
 def list_games():
     user_id = request.args.get("user_id", type=int)
+
     query = db.session.query(Game)
     if user_id is not None:
         query = query.filter_by(user_id=user_id)
 
     games = query.all()
 
-    return jsonify([
-        {
-            "game_id": g.game_id,
-            "user_id": g.user_id,
-            "title": g.title,
-            "platform": g.platform,
-            "genre": g.genre,
-            "run_type": g.run_type,
-            "tags": g.tags
-        }
-        for g in games
-    ])
+    return jsonify(
+        [
+            {
+                "game_id": g.game_id,
+                "user_id": g.user_id,
+                "title": g.title,
+                "platform": g.platform,
+                "genre": g.genre,
+                "run_type": g.run_type,
+                "tags": g.tags
+            }
+            for g in games
+        ]
+    )
 
 
 @app.route("/api/games/<int:game_id>/progress", methods=["GET"])

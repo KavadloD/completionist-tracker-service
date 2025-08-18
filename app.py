@@ -54,10 +54,42 @@ def login():
 
 @app.route('/api/seed-community')
 def seed_community():
-    from seed_community import seed_data
-    seed_data()
-    return {'message': 'Community checklist seeded'}
+    from models import User, db, CommunityChecklist
 
+    # Create a user manually
+    user = User(username="seed_user", password="test123")
+    db.session.add(user)
+    db.session.commit()
+
+    # Create checklists linked to that user
+    sample_data = [
+        CommunityChecklist(
+            title="Hollow Knight – 100% Completion",
+            description="All charms, grubs, bosses, and true ending.",
+            platform="PC",
+            genre="Metroidvania",
+            created_by_user_id=user.id,
+        ),
+        CommunityChecklist(
+            title="Final Fantasy X – Aeons and Side Quests",
+            description="Capture monsters, get all celestial weapons, finish all side quests.",
+            platform="PlayStation",
+            genre="RPG",
+            created_by_user_id=user.id,
+        ),
+        CommunityChecklist(
+            title="Metroid Prime – Minimal Item Run",
+            description="No energy tanks, no missiles, hard mode speedrun.",
+            platform="GameCube",
+            genre="Action-Adventure",
+            created_by_user_id=user.id,
+        ),
+    ]
+
+    db.session.bulk_save_objects(sample_data)
+    db.session.commit()
+
+    return {'message': 'Community checklist seeded'}
 
 # --------- Checklist ---------
 @app.route("/api/games/<int:game_id>/checklist", methods=["GET"])

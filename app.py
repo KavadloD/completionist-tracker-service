@@ -1,10 +1,9 @@
-import os
 from flask import Flask, request, jsonify
 from flask_migrate import Migrate
 from flask_cors import CORS
 from sqlalchemy import func
 
-from models import db, Game, ChecklistItem
+from models import db, Game, ChecklistItem, CommunityChecklist
 from users import register_user, login_user
 from checklist import (
     add_checklist_item,
@@ -12,9 +11,7 @@ from checklist import (
     update_checklist_item,
     delete_checklist_item,
 )
-from models import CommunityChecklist
 from werkzeug.security import generate_password_hash
-from flask_cors import cross_origin
 
 # App factory-style setup kept simple in a single file
 app = Flask(__name__)
@@ -102,17 +99,6 @@ def seed_community():
     db.session.commit()
 
     return {'message': 'Community checklist seeded'}
-
-
-@app.route("/admin/fix-schema", methods=["POST"])
-@cross_origin() 
-def fix_schema():
-    with app.app_context():
-        try:
-            db.create_all()
-            return jsonify({"message": "Schema fixed!"}), 200
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
 
 
 # --------- Checklist ---------

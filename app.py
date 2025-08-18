@@ -17,15 +17,19 @@ from models import CommunityChecklist
 app = Flask(__name__)
 
 # CORS: enable credentials if you use cookies or auth headers from the browser
-CORS(app, supports_credentials=True)
+allowed_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
+CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
 
 #password is postgres123
 #port 5432
 
 # Config: prefer env var, fall back to local dev default
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
-    "DATABASE_URL", "postgresql://postgres:postgres123@localhost/completionist_db"
-)
+db_url = os.getenv("DATABASE_URL", "postgresql://postgres:postgres123@localhost/completionist_db")
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = db_url
+
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # Bind SQLAlchemy
@@ -272,5 +276,4 @@ def internal_error(_):
 
 
 if __name__ == "__main__":
-    # Use debug only in local development
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

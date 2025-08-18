@@ -14,6 +14,7 @@ from checklist import (
 )
 from models import CommunityChecklist
 from werkzeug.security import generate_password_hash
+from flask_cors import cross_origin
 
 # App factory-style setup kept simple in a single file
 app = Flask(__name__)
@@ -103,17 +104,15 @@ def seed_community():
     return {'message': 'Community checklist seeded'}
 
 
-@app.route('/admin/fix-schema', methods=['POST'])
+@app.route("/admin/fix-schema", methods=["POST"])
+@cross_origin() 
 def fix_schema():
-    from sqlalchemy import text
-
-    try:
-        with db.engine.begin() as conn:
-            conn.execute(text("ALTER TABLE game ADD COLUMN tags VARCHAR(255);"))
-            conn.execute(text("ALTER TABLE game ADD COLUMN run_type VARCHAR(100);"))
-        return jsonify({"message": "Schema updated successfully"}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    with app.app_context():
+        try:
+            db.create_all()
+            return jsonify({"message": "Schema fixed!"}), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
 
 # --------- Checklist ---------

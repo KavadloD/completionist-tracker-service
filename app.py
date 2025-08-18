@@ -53,38 +53,45 @@ def register():
 def login():
     return login_user()
 
+
 @app.route('/api/seed-community')
 def seed_community():
     from models import User, db, CommunityChecklist
+    from werkzeug.security import generate_password_hash
 
-    # Create a user manually
-    hashed_pw = generate_password_hash("test123")
-    user = User(username="seed_user", email="seed@example.com", password_hash=hashed_pw)
-    db.session.add(user)
-    db.session.commit()
+    # Check if user already exists
+    existing_user = User.query.filter_by(email="seed@example.com").first()
 
-    # Create checklists linked to that user
+    if not existing_user:
+        hashed_pw = generate_password_hash("test123")
+        user = User(username="seed_user", email="seed@example.com", password_hash=hashed_pw)
+        db.session.add(user)
+        db.session.commit()
+    else:
+        user = existing_user
+
+    # Now create checklists linked to that user
     sample_data = [
         CommunityChecklist(
             title="Hollow Knight – 100% Completion",
             description="All charms, grubs, bosses, and true ending.",
             platform="PC",
             genre="Metroidvania",
-            created_by_user_id=user.id,
+            created_by_user_id=user.user_id,
         ),
         CommunityChecklist(
             title="Final Fantasy X – Aeons and Side Quests",
             description="Capture monsters, get all celestial weapons, finish all side quests.",
             platform="PlayStation",
             genre="RPG",
-            created_by_user_id=user.id,
+            created_by_user_id=user.user_id,
         ),
         CommunityChecklist(
             title="Metroid Prime – Minimal Item Run",
             description="No energy tanks, no missiles, hard mode speedrun.",
             platform="GameCube",
             genre="Action-Adventure",
-            created_by_user_id=user.id,
+            created_by_user_id=user.user_id,
         ),
     ]
 
@@ -92,6 +99,7 @@ def seed_community():
     db.session.commit()
 
     return {'message': 'Community checklist seeded'}
+
 
 # --------- Checklist ---------
 @app.route("/api/games/<int:game_id>/checklist", methods=["GET"])

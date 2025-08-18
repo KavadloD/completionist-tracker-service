@@ -52,6 +52,12 @@ def register():
 def login():
     return login_user()
 
+@app.route('/api/seed-community')
+def seed_community():
+    from seed_community import seed_data
+    seed_data()
+    return {'message': 'Community checklist seeded'}
+
 
 # --------- Checklist ---------
 @app.route("/api/games/<int:game_id>/checklist", methods=["GET"])

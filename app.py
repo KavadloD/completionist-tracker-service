@@ -38,7 +38,13 @@ db.init_app(app)
 migrate = Migrate(app, db)
 
 #TEMP
-@app.route('/admin/fix-schema', methods=['POST'])
+from flask_cors import cross_origin
+@app.route('/admin/fix-schema', methods=['POST', 'OPTIONS'])
+@cross_origin(
+    origins=allowed_origins,
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["POST", "OPTIONS"]
+)
 def fix_schema():
     from sqlalchemy import text
     statements = [
@@ -49,7 +55,6 @@ def fix_schema():
         for stmt in statements:
             conn.execute(text(stmt))
     return jsonify({"message": "Schema fixed!"})
-
 
 
 

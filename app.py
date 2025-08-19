@@ -37,6 +37,21 @@ db.init_app(app)
 
 migrate = Migrate(app, db)
 
+#TEMP
+@app.route('/admin/fix-schema', methods=['POST'])
+def fix_schema():
+    from sqlalchemy import text
+    statements = [
+        "ALTER TABLE community_checklist ADD COLUMN IF NOT EXISTS run_type VARCHAR(100);",
+        "ALTER TABLE community_checklist ADD COLUMN IF NOT EXISTS tags VARCHAR(255);"
+    ]
+    with db.engine.begin() as conn:
+        for stmt in statements:
+            conn.execute(text(stmt))
+    return jsonify({"message": "Schema fixed!"})
+
+
+
 
 # --------- Health check ---------
 @app.route("/api/test")

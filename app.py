@@ -37,26 +37,6 @@ db.init_app(app)
 
 migrate = Migrate(app, db)
 
-#TEMP
-from flask_cors import cross_origin
-@app.route('/admin/fix-schema', methods=['POST', 'OPTIONS'])
-@cross_origin(
-    origins=allowed_origins,
-    allow_headers=["Content-Type", "Authorization"],
-    methods=["POST", "OPTIONS"]
-)
-def fix_schema():
-    from sqlalchemy import text
-    statements = [
-        "ALTER TABLE community_checklist ADD COLUMN IF NOT EXISTS run_type VARCHAR(100);",
-        "ALTER TABLE community_checklist ADD COLUMN IF NOT EXISTS tags VARCHAR(255);"
-    ]
-    with db.engine.begin() as conn:
-        for stmt in statements:
-            conn.execute(text(stmt))
-    return jsonify({"message": "Schema fixed!"})
-
-
 
 # --------- Health check ---------
 @app.route("/api/test")
@@ -258,11 +238,18 @@ def list_games():
                 "platform": g.platform,
                 "genre": g.genre,
                 "run_type": g.run_type,
-                "tags": g.tags
+                "tags": g.tags,
+                "progress": (
+                    lambda total, done: 0 if total == 0 else round((done / total) * 100)
+                )(
+                    db.session.query(func.count(ChecklistItem.checklist_item_id)).filter_by(game_id=g.game_id).scalar(),
+                    db.session.query(func.count(ChecklistItem.checklist_item_id)).filter_by(game_id=g.game_id, completed=True).scalar()
+                )
             }
             for g in games
         ]
     )
+
 
 
 @app.route("/api/games/<int:game_id>/progress", methods=["GET"])

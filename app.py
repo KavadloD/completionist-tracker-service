@@ -129,17 +129,18 @@ def list_game_thumbnails():
 
     rows = (
         q.with_entities(Game.game_id, Game.thumbnail_url, Game.cover_url)
-         .order_by(Game.created_at.desc())
+         .order_by(Game.game_id.desc())  # was Game.created_at.desc()
          .all()
     )
 
-    data = []
-    for gid, thumb, cover in rows:
-        data.append({
+    data = [
+        {
             "game_id": gid,
-            "thumbnail_url": thumb or cover,  # fallback to cover if needed
+            "thumbnail_url": thumb or cover,
             "cover_url": cover
-        })
+        }
+        for gid, thumb, cover in rows
+    ]
     return jsonify(data), 200
 
 

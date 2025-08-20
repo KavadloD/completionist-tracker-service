@@ -24,6 +24,7 @@ class Game(db.Model):
     thumbnail_url = db.Column(db.Text, nullable=True)
 
     user = db.relationship('User', backref='games')
+    
 
 
 class ChecklistItem(db.Model):
@@ -46,3 +47,17 @@ class CommunityChecklist(db.Model):
 
     created_by_user_id = db.Column(db.Integer, db.ForeignKey('user.user_id'))
     created_by_user = db.relationship('User', backref='community_templates')
+
+def to_dict(self):
+    return {
+        "game_id": self.game_id,
+        "user_id": self.user_id,
+        "title": self.title,
+        "platform": self.platform,
+        "genre": self.genre,
+        "tags": self.tags,
+        "run_type": self.run_type,
+        "progress": getattr(self, "progress", 0),
+        "cover_url": self.cover_url,
+        "thumbnail_url": self.thumbnail_url or self.cover_url,
+    }

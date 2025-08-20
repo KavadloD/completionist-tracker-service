@@ -120,6 +120,31 @@ def get_game_thumbnail(game_id):
         "cover_url": game.cover_url  # handy fallback for the UI
     }), 200
 
+@app.route("/api/games/thumbnails", methods=["GET"])
+def list_game_thumbnails():
+    user_id = request.args.get("user_id", type=int)
+    q = Game.query
+    if user_id:
+        q = q.filter_by(user_id=user_id)
+
+    rows = (
+        q.with_entities(Game.game_id, Game.thumbnail_url, Game.cover_url)
+         .order_by(Game.created_at.desc())
+         .all()
+    )
+
+    data = []
+    for gid, thumb, cover in rows:
+        data.append({
+            "game_id": gid,
+            "thumbnail_url": thumb or cover,  # fallback to cover if needed
+            "cover_url": cover
+        })
+    return jsonify(data), 200
+
+
+
+
 # --------- Health check ---------
 @app.route("/api/test")
 def test():

@@ -67,6 +67,27 @@ def fix_cover_url():
     except Exception as e:
         return {"error": str(e)}, 500
 
+@app.route("/api/games/<int:game_id>/thumbnail", methods=["PATCH"])
+def update_game_thumbnail(game_id):
+    from urllib.parse import urlparse
+    game = Game.query.get_or_404(game_id)
+
+    data = request.get_json(silent=True) or {}
+    url = data.get("thumbnail_url")
+    if not url:
+        return jsonify({"error": "thumbnail_url is required"}), 400
+
+    p = urlparse(url)
+    if p.scheme not in ("http", "https") or not p.netloc:
+        return jsonify({"error": "thumbnail_url must be a valid http(s) URL"}), 400
+
+    game.thumbnail_url = url
+    db.session.commit()
+    return jsonify({
+        "message": "Thumbnail updated",
+        "game_id": game.game_id,
+        "thumbnail_url": game.thumbnail_url
+    }), 200
 
 # --------- Health check ---------
 @app.route("/api/test")

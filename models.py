@@ -21,6 +21,7 @@ class Game(db.Model):
     tags = db.Column(db.String(255))
     run_type = db.Column(db.String(100))
     cover_url = db.Column(db.Text, nullable=True)
+    thumbnail_url = db.Column(db.Text, nullable=True)
 
     user = db.relationship('User', backref='games')
 

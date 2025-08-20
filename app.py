@@ -167,6 +167,30 @@ def list_games_with_thumbnails():
         for g in games
     ]), 200
 
+@app.route("/api/admin/thumbnails/backfill", methods=["POST"])
+def backfill_thumbnails():
+    data = request.get_json(silent=True) or {}
+    default_url = data.get("default_url")  # used if both thumbnail and cover are empty
+    user_id = request.args.get("user_id", type=int)
+
+    q = Game.query
+    if user_id is not None:
+        q = q.filter(Game.user_id == user_id)
+
+    updated = 0
+    games = q.all()
+    for g in games:
+        if not getattr(g, "thumbnail_url", None):
+            # prefer cover_url if present; otherwise use provided default
+            if getattr(g, "cover_url", None):
+                g.thumbnail_url = g.cover_url
+                updated += 1
+            elif default_url:
+                g.thumbnail_url = default_url
+                updated += 1
+
+    db.session.commit()
+    return jsonify({"updated": updated}), 200
 
 
 # --------- Health check ---------

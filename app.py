@@ -111,6 +111,14 @@ def fix_thumbnail_column():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/games/<int:game_id>/thumbnail", methods=["GET"])
+def get_game_thumbnail(game_id):
+    game = Game.query.get_or_404(game_id)
+    return jsonify({
+        "game_id": game.game_id,
+        "thumbnail_url": game.thumbnail_url,
+        "cover_url": game.cover_url  # handy fallback for the UI
+    }), 200
 
 # --------- Health check ---------
 @app.route("/api/test")

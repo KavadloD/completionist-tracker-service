@@ -143,6 +143,29 @@ def list_game_thumbnails():
     ]
     return jsonify(data), 200
 
+@app.route("/api/games/with-thumbnails", methods=["GET"])
+def list_games_with_thumbnails():
+    user_id = request.args.get("user_id", type=int)
+
+    q = db.session.query(Game)
+    if user_id is not None:
+        q = q.filter_by(user_id=user_id)
+
+    games = q.all()
+    return jsonify([
+        {
+            "game_id": g.game_id,
+            "user_id": g.user_id,
+            "title": g.title,
+            "platform": g.platform,
+            "genre": g.genre,
+            "run_type": g.run_type,
+            "tags": g.tags,
+            "cover_url": g.cover_url,
+            "thumbnail_url": getattr(g, "thumbnail_url", None) or g.cover_url
+        }
+        for g in games
+    ]), 200
 
 
 

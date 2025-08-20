@@ -38,6 +38,22 @@ db.init_app(app)
 migrate = Migrate(app, db)
 
 
+
+
+#TEMP
+from flask_cors import cross_origin
+
+@app.route("/admin/fix-schema")
+@cross_origin()
+def fix_schema():
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(db.text("ALTER TABLE game ADD COLUMN IF NOT EXISTS cover_url TEXT"))
+        return {"message": "Schema fixed (cover_url ensured)"}
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
 # --------- Health check ---------
 @app.route("/api/test")
 def test():

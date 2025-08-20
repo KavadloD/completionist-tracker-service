@@ -42,6 +42,7 @@ migrate = Migrate(app, db)
 
 #TEMP
 from flask_cors import cross_origin
+from sqlalchemy import text
 
 @app.route("/admin/fix-schema")
 @cross_origin()

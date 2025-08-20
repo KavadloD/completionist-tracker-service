@@ -378,32 +378,27 @@ def delete_game(game_id):
 def list_games():
     user_id = request.args.get("user_id", type=int)
 
-    query = db.session.query(Game)
+    q = db.session.query(Game)
     if user_id is not None:
-        query = query.filter_by(user_id=user_id)
+        q = q.filter_by(user_id=user_id)
 
-    games = query.all()
+    rows = q.order_by(Game.game_id.desc()).all()
 
-    return jsonify(
-        [
-            {
-                "game_id": g.game_id,
-                "user_id": g.user_id,
-                "title": g.title,
-                "platform": g.platform,
-                "genre": g.genre,
-                "run_type": g.run_type,
-                "tags": g.tags,
-                "progress": (
-                    lambda total, done: 0 if total == 0 else round((done / total) * 100)
-                )(
-                    db.session.query(func.count(ChecklistItem.checklist_item_id)).filter_by(game_id=g.game_id).scalar(),
-                    db.session.query(func.count(ChecklistItem.checklist_item_id)).filter_by(game_id=g.game_id, completed=True).scalar()
-                )
-            }
-            for g in games
-        ]
-    )
+    return jsonify([
+        {
+            "game_id": g.game_id,
+            "user_id": g.user_id,
+            "title": g.title,
+            "platform": g.platform,
+            "genre": g.genre,
+            "tags": g.tags,
+            "run_type": g.run_type,
+            "progress": getattr(g, "progress", 0),
+            "cover_url": g.cover_url,
+            "thumbnail_url": getattr(g, "thumbnail_url", None) or g.cover_url
+        }
+        for g in rows
+    ]), 200
 
 
 

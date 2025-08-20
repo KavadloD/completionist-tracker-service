@@ -89,6 +89,29 @@ def update_game_thumbnail(game_id):
         "thumbnail_url": game.thumbnail_url
     }), 200
 
+@app.route("/api/admin/thumbnail-column/check", methods=["GET"])
+def check_thumbnail_column():
+    try:
+        exists = db.session.execute(text("""
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'game' AND column_name = 'thumbnail_url'
+        """)).scalar() is not None
+        return jsonify({"thumbnail_column_exists": exists}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/admin/thumbnail-column/fix", methods=["POST"])
+def fix_thumbnail_column():
+    try:
+        db.session.execute(text("ALTER TABLE game ADD COLUMN IF NOT EXISTS thumbnail_url TEXT"))
+        db.session.commit()
+        return jsonify({"message": "thumbnail_url column ensured"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+
 # --------- Health check ---------
 @app.route("/api/test")
 def test():

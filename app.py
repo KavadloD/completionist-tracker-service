@@ -40,7 +40,7 @@ migrate = Migrate(app, db)
 
 
 
-"""TEMP
+#TEMP
 from flask_cors import cross_origin
 
 @app.route("/admin/fix-schema")
@@ -53,7 +53,18 @@ def fix_schema():
     except Exception as e:
         return {"error": str(e)}, 500
 
-"""
+
+@app.route("/api/fix_cover_url", methods=["POST"])
+def fix_cover_url():
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(
+                text("ALTER TABLE game ADD COLUMN IF NOT EXISTS cover_url TEXT")
+            )
+            conn.commit()
+        return {"message": "Schema fixed (cover_url ensured)"}
+    except Exception as e:
+        return {"error": str(e)}, 500
 
 
 # --------- Health check ---------

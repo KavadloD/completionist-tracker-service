@@ -40,7 +40,7 @@ migrate = Migrate(app, db)
 
 
 
-#TEMP
+"""TEMP
 from flask_cors import cross_origin
 
 @app.route("/admin/fix-schema")
@@ -52,6 +52,8 @@ def fix_schema():
         return {"message": "Schema fixed (cover_url ensured)"}
     except Exception as e:
         return {"error": str(e)}, 500
+
+"""
 
 
 # --------- Health check ---------

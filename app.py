@@ -281,18 +281,27 @@ def delete_item(item_id):
 # --------- Games ---------
 @app.route('/api/games', methods=['POST'])
 def add_game():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
+    title = (data.get('title') or '').strip()
+    user_id = data.get('user_id')
+
+    if not user_id or not title:
+        return jsonify({"message": "user_id and non-empty title are required"}), 400
+
     game = Game(
-        user_id=data['user_id'],
-        title=data['title'],
-        platform=data.get('platform'),
-        genre=data.get('genre'),
-        run_type=data.get('run_type'),
-        tags=data.get('tags')
+        user_id=user_id,
+        title=title,
+        platform=(data.get('platform') or '').strip() or None,
+        genre=(data.get('genre') or '').strip() or None,
+        run_type=(data.get('run_type') or '').strip() or None,
+        tags=(data.get('tags') or '').strip() or None,
+        cover_url=(data.get('cover_url') or '').strip() or None,
+        thumbnail_url=(data.get('thumbnail_url') or '').strip() or None,
     )
     db.session.add(game)
     db.session.commit()
     return jsonify({'message': 'Game added!', 'game_id': game.game_id}), 201
+
 
 
 @app.route("/api/games/<int:game_id>", methods=["GET"])
@@ -300,16 +309,17 @@ def get_game(game_id):
     game = db.session.get(Game, game_id)
     if not game:
         return jsonify({"message": "Game not found"}), 404
+    return jsonify(game.to_dict()), 200
 
-    return jsonify({
-        "game_id": game.game_id,
-        "user_id": game.user_id,
-        "title": game.title,
-        "platform": game.platform,
-        "genre": game.genre,
-        "run_type": game.run_type,
-        "tags": game.tags
-    })
+# GET many
+@app.route("/api/games", methods=["GET"])
+def list_games():
+    user_id = request.args.get("user_id", type=int)
+    q = db.session.query(Game)
+    if user_id is not None:
+        q = q.filter_by(user_id=user_id)
+    rows = q.order_by(Game.game_id.desc()).all()
+    return jsonify([g.to_dict() for g in rows]), 200
 
 
 @app.route('/api/games/<int:game_id>', methods=['PATCH', 'PUT'])

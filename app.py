@@ -459,5 +459,21 @@ def internal_error(_):
     return jsonify({"message": "Internal server error"}), 500
 
 
+
+from sqlalchemy import text
+
+@app.route("/admin/fix-timestamps", methods=["POST"])
+def fix_timestamps():
+    try:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE game ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()"))
+            conn.execute(text("ALTER TABLE game ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()"))
+            conn.execute(text("UPDATE game SET created_at = NOW() WHERE created_at IS NULL"))
+            conn.execute(text("UPDATE game SET updated_at = NOW() WHERE updated_at IS NULL"))
+        return {"message": "created_at/updated_at ensured and backfilled"}, 200
+    except Exception as e:
+        return {"error": str(e)}, 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

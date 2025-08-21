@@ -40,268 +40,6 @@ db.init_app(app)
 migrate = Migrate(app, db)
 
 
-
-#TEMP
-@app.post("/_admin/repair_community")
-def _admin_repair_community():
-    # lock it down with a token
-    token = request.args.get("k") or request.headers.get("X-Admin-Token")
-    if not token or token != os.environ.get("ADMIN_REPAIR_TOKEN"):
-        return jsonify({"ok": False, "error": "forbidden"}), 403
-
-    actions = []
-
-    def col_exists(table, col):
-        q = text("""
-            SELECT 1 FROM information_schema.columns
-            WHERE table_name=:t AND column_name=:c
-            LIMIT 1
-        """)
-        return db.session.execute(q, {"t": table, "c": col}).scalar() is not None
-
-    def table_exists(table):
-        q = text("""
-            SELECT 1 FROM information_schema.tables
-            WHERE table_name=:t
-            LIMIT 1
-        """)
-        return db.session.execute(q, {"t": table}).scalar() is not None
-
-    def constraint_exists(table, name):
-        q = text("""
-            SELECT 1
-            FROM pg_constraint
-            WHERE conname = :n
-            LIMIT 1
-        """)
-        return db.session.execute(q, {"n": name}).scalar() is not None
-
-    # 1) community_checklist.thumbnail_url
-    if not col_exists("community_checklist", "thumbnail_url"):
-        db.session.execute(text("ALTER TABLE community_checklist ADD COLUMN thumbnail_url TEXT"))
-        actions.append("add community_checklist.thumbnail_url")
-
-    # 2) community_checklist_item table
-    if not table_exists("community_checklist_item"):
-        db.session.execute(text("""
-            CREATE TABLE community_checklist_item (
-              community_item_id SERIAL PRIMARY KEY,
-              community_checklist_id INTEGER NOT NULL REFERENCES community_checklist(community_checklist_id) ON DELETE CASCADE,
-              description TEXT NOT NULL,
-              "order" INTEGER
-            )
-        """))
-        actions.append("create community_checklist_item")
-
-    # 3) unique (community_checklist_id, order)
-    if not constraint_exists("community_checklist_item", "uq_comm_item_order"):
-        db.session.execute(text("""
-            ALTER TABLE community_checklist_item
-            ADD CONSTRAINT uq_comm_item_order UNIQUE (community_checklist_id, "order")
-        """))
-        actions.append("add uq_comm_item_order")
-
-    # 4) checklist_item.completed -> NOT NULL default false (idempotent)
-    if col_exists("checklist_item", "completed"):
-        # backfill nulls
-        db.session.execute(text("UPDATE checklist_item SET completed = FALSE WHERE completed IS NULL"))
-        # set default false (ignore if already set)
-        try:
-            db.session.execute(text("ALTER TABLE checklist_item ALTER COLUMN completed SET DEFAULT FALSE"))
-            actions.append("set default on checklist_item.completed")
-        except Exception:
-            pass
-        # enforce not null (ignore if already not null)
-        try:
-            db.session.execute(text("ALTER TABLE checklist_item ALTER COLUMN completed SET NOT NULL"))
-            actions.append("set NOT NULL on checklist_item.completed")
-        except Exception:
-            pass
-
-    # 5) game extra columns (add if missing)
-    if not col_exists("game", "cover_url"):
-        db.session.execute(text("ALTER TABLE game ADD COLUMN cover_url TEXT"))
-        actions.append("add game.cover_url")
-    if not col_exists("game", "thumbnail_url"):
-        db.session.execute(text("ALTER TABLE game ADD COLUMN thumbnail_url TEXT"))
-        actions.append("add game.thumbnail_url")
-    if not col_exists("game", "created_at"):
-        db.session.execute(text("ALTER TABLE game ADD COLUMN created_at TIMESTAMPTZ DEFAULT now()"))
-        actions.append("add game.created_at")
-    if not col_exists("game", "updated_at"):
-        db.session.execute(text("ALTER TABLE game ADD COLUMN updated_at TIMESTAMPTZ DEFAULT now()"))
-        actions.append("add game.updated_at")
-
-    # 6) stamp alembic to latest (your new revision)
-    target_rev = "745f8c5ac33d"  # community_add_thumbnail_url_community_...
-    # ensure alembic_version table exists
-    db.session.execute(text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)"))
-    current = db.session.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar()
-    if current is None:
-        db.session.execute(text("INSERT INTO alembic_version (version_num) VALUES (:v)"), {"v": target_rev})
-    else:
-        db.session.execute(text("UPDATE alembic_version SET version_num=:v"), {"v": target_rev})
-    actions.append(f"stamp alembic to {target_rev}")
-
-    db.session.commit()
-    return jsonify({"ok": True, "actions": actions})
-# --- END TEMP ROUTE ---
-
-@app.route("/admin/fix-schema")
-@cross_origin()
-def fix_schema():
-    try:
-        with db.engine.connect() as conn:
-            conn.execute(db.text("ALTER TABLE game ADD COLUMN IF NOT EXISTS cover_url TEXT"))
-        return {"message": "Schema fixed (cover_url ensured)"}
-    except Exception as e:
-        return {"error": str(e)}, 500
-
-
-@app.route("/api/fix_cover_url", methods=["POST"])
-def fix_cover_url():
-    try:
-        with db.engine.connect() as conn:
-            conn.execute(
-                text("ALTER TABLE game ADD COLUMN IF NOT EXISTS cover_url TEXT")
-            )
-            conn.commit()
-        return {"message": "Schema fixed (cover_url ensured)"}
-    except Exception as e:
-        return {"error": str(e)}, 500
-
-@app.route("/api/games/<int:game_id>/thumbnail", methods=["PATCH"])
-def update_game_thumbnail(game_id):
-    from urllib.parse import urlparse
-    game = Game.query.get_or_404(game_id)
-
-    data = request.get_json(silent=True) or {}
-    url = data.get("thumbnail_url")
-    if not url:
-        return jsonify({"error": "thumbnail_url is required"}), 400
-
-    p = urlparse(url)
-    if p.scheme not in ("http", "https") or not p.netloc:
-        return jsonify({"error": "thumbnail_url must be a valid http(s) URL"}), 400
-
-    game.thumbnail_url = url
-    db.session.commit()
-    return jsonify({
-        "message": "Thumbnail updated",
-        "game_id": game.game_id,
-        "thumbnail_url": game.thumbnail_url
-    }), 200
-
-@app.route("/api/admin/thumbnail-column/check", methods=["GET"])
-def check_thumbnail_column():
-    try:
-        exists = db.session.execute(text("""
-            SELECT 1
-            FROM information_schema.columns
-            WHERE table_name = 'game' AND column_name = 'thumbnail_url'
-        """)).scalar() is not None
-        return jsonify({"thumbnail_column_exists": exists}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/admin/thumbnail-column/fix", methods=["POST"])
-def fix_thumbnail_column():
-    try:
-        db.session.execute(text("ALTER TABLE game ADD COLUMN IF NOT EXISTS thumbnail_url TEXT"))
-        db.session.commit()
-        return jsonify({"message": "thumbnail_url column ensured"}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/games/<int:game_id>/thumbnail", methods=["GET"])
-def get_game_thumbnail(game_id):
-    game = Game.query.get_or_404(game_id)
-    return jsonify({
-        "game_id": game.game_id,
-        "thumbnail_url": game.thumbnail_url,
-        "cover_url": game.cover_url  # fallback
-    }), 200
-
-@app.route("/api/games/thumbnails", methods=["GET"])
-def list_game_thumbnails():
-    user_id = request.args.get("user_id", type=int)
-    q = Game.query
-    if user_id:
-        q = q.filter_by(user_id=user_id)
-
-    rows = (
-        q.with_entities(Game.game_id, Game.thumbnail_url, Game.cover_url)
-         .order_by(Game.game_id.desc())
-         .all()
-    )
-
-    data = [
-        {
-            "game_id": gid,
-            "thumbnail_url": thumb or cover,
-            "cover_url": cover
-        }
-        for gid, thumb, cover in rows
-    ]
-    return jsonify(data), 200
-
-@app.route("/api/games/with-thumbnails", methods=["GET"])
-def list_games_with_thumbnails():
-    user_id = request.args.get("user_id", type=int)
-
-    q = db.session.query(Game)
-    if user_id is not None:
-        q = q.filter_by(user_id=user_id)
-
-    games = q.all()
-    return jsonify([
-        {
-            "game_id": g.game_id,
-            "user_id": g.user_id,
-            "title": g.title,
-            "platform": g.platform,
-            "genre": g.genre,
-            "run_type": g.run_type,
-            "tags": g.tags,
-            "cover_url": g.cover_url,
-            "thumbnail_url": getattr(g, "thumbnail_url", None) or g.cover_url
-        }
-        for g in games
-    ]), 200
-
-@app.route("/api/admin/thumbnails/backfill", methods=["POST"])
-def backfill_thumbnails():
-    data = request.get_json(silent=True) or {}
-    default_url = data.get("default_url")  # used if both thumbnail and cover are empty
-    user_id = request.args.get("user_id", type=int)
-
-    q = Game.query
-    if user_id is not None:
-        q = q.filter(Game.user_id == user_id)
-
-    updated = 0
-    games = q.all()
-    for g in games:
-        if not getattr(g, "thumbnail_url", None):
-            # prefer cover_url if present otherwise use provided default
-            if getattr(g, "cover_url", None):
-                g.thumbnail_url = g.cover_url
-                updated += 1
-            elif default_url:
-                g.thumbnail_url = default_url
-                updated += 1
-
-    db.session.commit()
-    return jsonify({"updated": updated}), 200
-
-
-# --------- Health check ---------
-@app.route("/api/test")
-def test():
-    return jsonify({"message": "API is working"})
-
-
 # --------- Auth ---------
 @app.route("/api/register", methods=["POST"])
 def register():
@@ -311,12 +49,6 @@ def register():
 @app.route("/api/login", methods=["POST"])
 def login():
     return login_user()
-
-
-@app.route('/api/seed-community')
-def seed_community():
-    from models import User, db, CommunityChecklist
-    from werkzeug.security import generate_password_hash
 
     # Check if user already exists
     existing_user = User.query.filter_by(email="seed@example.com").first()
@@ -611,6 +343,114 @@ def get_community_checklist(template_id):
         return jsonify({"message": "Template not found"}), 404
     return jsonify(t.to_dict(include_items=True)), 200
 
+
+# --------- Thumbnails ---------
+@app.route("/api/games/<int:game_id>/thumbnail", methods=["PATCH"])
+def update_game_thumbnail(game_id):
+    from urllib.parse import urlparse
+    game = Game.query.get_or_404(game_id)
+
+    data = request.get_json(silent=True) or {}
+    url = data.get("thumbnail_url")
+    if not url:
+        return jsonify({"error": "thumbnail_url is required"}), 400
+
+    p = urlparse(url)
+    if p.scheme not in ("http", "https") or not p.netloc:
+        return jsonify({"error": "thumbnail_url must be a valid http(s) URL"}), 400
+
+    game.thumbnail_url = url
+    db.session.commit()
+    return jsonify({
+        "message": "Thumbnail updated",
+        "game_id": game.game_id,
+        "thumbnail_url": game.thumbnail_url
+    }), 200
+
+
+
+@app.route("/api/games/<int:game_id>/thumbnail", methods=["GET"])
+def get_game_thumbnail(game_id):
+    game = Game.query.get_or_404(game_id)
+    return jsonify({
+        "game_id": game.game_id,
+        "thumbnail_url": game.thumbnail_url,
+        "cover_url": game.cover_url  # fallback
+    }), 200
+
+@app.route("/api/games/thumbnails", methods=["GET"])
+def list_game_thumbnails():
+    user_id = request.args.get("user_id", type=int)
+    q = Game.query
+    if user_id:
+        q = q.filter_by(user_id=user_id)
+
+    rows = (
+        q.with_entities(Game.game_id, Game.thumbnail_url, Game.cover_url)
+         .order_by(Game.game_id.desc())
+         .all()
+    )
+
+    data = [
+        {
+            "game_id": gid,
+            "thumbnail_url": thumb or cover,
+            "cover_url": cover
+        }
+        for gid, thumb, cover in rows
+    ]
+    return jsonify(data), 200
+
+@app.route("/api/games/with-thumbnails", methods=["GET"])
+def list_games_with_thumbnails():
+    user_id = request.args.get("user_id", type=int)
+
+    q = db.session.query(Game)
+    if user_id is not None:
+        q = q.filter_by(user_id=user_id)
+
+    games = q.all()
+    return jsonify([
+        {
+            "game_id": g.game_id,
+            "user_id": g.user_id,
+            "title": g.title,
+            "platform": g.platform,
+            "genre": g.genre,
+            "run_type": g.run_type,
+            "tags": g.tags,
+            "cover_url": g.cover_url,
+            "thumbnail_url": getattr(g, "thumbnail_url", None) or g.cover_url
+        }
+        for g in games
+    ]), 200
+
+@app.route("/api/admin/thumbnails/backfill", methods=["POST"])
+def backfill_thumbnails():
+    data = request.get_json(silent=True) or {}
+    default_url = data.get("default_url")  # used if both thumbnail and cover are empty
+    user_id = request.args.get("user_id", type=int)
+
+    q = Game.query
+    if user_id is not None:
+        q = q.filter(Game.user_id == user_id)
+
+    updated = 0
+    games = q.all()
+    for g in games:
+        if not getattr(g, "thumbnail_url", None):
+            # prefer cover_url if present otherwise use provided default
+            if getattr(g, "cover_url", None):
+                g.thumbnail_url = g.cover_url
+                updated += 1
+            elif default_url:
+                g.thumbnail_url = default_url
+                updated += 1
+
+    db.session.commit()
+    return jsonify({"updated": updated}), 200
+
+
 # --------- Error Handlers ---------
 @app.errorhandler(404)
 def not_found(_):
@@ -627,18 +467,6 @@ def internal_error(_):
     # Avoid leaking stack traces to clients
     return jsonify({"message": "Internal server error"}), 500
 
-
-@app.route("/admin/fix-timestamps", methods=["POST"])
-def fix_timestamps():
-    try:
-        with db.engine.begin() as conn:
-            conn.execute(text("ALTER TABLE game ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()"))
-            conn.execute(text("ALTER TABLE game ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()"))
-            conn.execute(text("UPDATE game SET created_at = NOW() WHERE created_at IS NULL"))
-            conn.execute(text("UPDATE game SET updated_at = NOW() WHERE updated_at IS NULL"))
-        return {"message": "created_at/updated_at ensured and backfilled"}, 200
-    except Exception as e:
-        return {"error": str(e)}, 500
 
 
 if __name__ == "__main__":

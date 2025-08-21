@@ -42,6 +42,110 @@ migrate = Migrate(app, db)
 
 
 #TEMP
+@app.post("/_admin/repair_community")
+def _admin_repair_community():
+    # lock it down with a token
+    token = request.args.get("k") or request.headers.get("X-Admin-Token")
+    if not token or token != os.environ.get("ADMIN_REPAIR_TOKEN"):
+        return jsonify({"ok": False, "error": "forbidden"}), 403
+
+    actions = []
+
+    def col_exists(table, col):
+        q = text("""
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name=:t AND column_name=:c
+            LIMIT 1
+        """)
+        return db.session.execute(q, {"t": table, "c": col}).scalar() is not None
+
+    def table_exists(table):
+        q = text("""
+            SELECT 1 FROM information_schema.tables
+            WHERE table_name=:t
+            LIMIT 1
+        """)
+        return db.session.execute(q, {"t": table}).scalar() is not None
+
+    def constraint_exists(table, name):
+        q = text("""
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = :n
+            LIMIT 1
+        """)
+        return db.session.execute(q, {"n": name}).scalar() is not None
+
+    # 1) community_checklist.thumbnail_url
+    if not col_exists("community_checklist", "thumbnail_url"):
+        db.session.execute(text("ALTER TABLE community_checklist ADD COLUMN thumbnail_url TEXT"))
+        actions.append("add community_checklist.thumbnail_url")
+
+    # 2) community_checklist_item table
+    if not table_exists("community_checklist_item"):
+        db.session.execute(text("""
+            CREATE TABLE community_checklist_item (
+              community_item_id SERIAL PRIMARY KEY,
+              community_checklist_id INTEGER NOT NULL REFERENCES community_checklist(community_checklist_id) ON DELETE CASCADE,
+              description TEXT NOT NULL,
+              "order" INTEGER
+            )
+        """))
+        actions.append("create community_checklist_item")
+
+    # 3) unique (community_checklist_id, order)
+    if not constraint_exists("community_checklist_item", "uq_comm_item_order"):
+        db.session.execute(text("""
+            ALTER TABLE community_checklist_item
+            ADD CONSTRAINT uq_comm_item_order UNIQUE (community_checklist_id, "order")
+        """))
+        actions.append("add uq_comm_item_order")
+
+    # 4) checklist_item.completed -> NOT NULL default false (idempotent)
+    if col_exists("checklist_item", "completed"):
+        # backfill nulls
+        db.session.execute(text("UPDATE checklist_item SET completed = FALSE WHERE completed IS NULL"))
+        # set default false (ignore if already set)
+        try:
+            db.session.execute(text("ALTER TABLE checklist_item ALTER COLUMN completed SET DEFAULT FALSE"))
+            actions.append("set default on checklist_item.completed")
+        except Exception:
+            pass
+        # enforce not null (ignore if already not null)
+        try:
+            db.session.execute(text("ALTER TABLE checklist_item ALTER COLUMN completed SET NOT NULL"))
+            actions.append("set NOT NULL on checklist_item.completed")
+        except Exception:
+            pass
+
+    # 5) game extra columns (add if missing)
+    if not col_exists("game", "cover_url"):
+        db.session.execute(text("ALTER TABLE game ADD COLUMN cover_url TEXT"))
+        actions.append("add game.cover_url")
+    if not col_exists("game", "thumbnail_url"):
+        db.session.execute(text("ALTER TABLE game ADD COLUMN thumbnail_url TEXT"))
+        actions.append("add game.thumbnail_url")
+    if not col_exists("game", "created_at"):
+        db.session.execute(text("ALTER TABLE game ADD COLUMN created_at TIMESTAMPTZ DEFAULT now()"))
+        actions.append("add game.created_at")
+    if not col_exists("game", "updated_at"):
+        db.session.execute(text("ALTER TABLE game ADD COLUMN updated_at TIMESTAMPTZ DEFAULT now()"))
+        actions.append("add game.updated_at")
+
+    # 6) stamp alembic to latest (your new revision)
+    target_rev = "745f8c5ac33d"  # community_add_thumbnail_url_community_...
+    # ensure alembic_version table exists
+    db.session.execute(text("CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)"))
+    current = db.session.execute(text("SELECT version_num FROM alembic_version LIMIT 1")).scalar()
+    if current is None:
+        db.session.execute(text("INSERT INTO alembic_version (version_num) VALUES (:v)"), {"v": target_rev})
+    else:
+        db.session.execute(text("UPDATE alembic_version SET version_num=:v"), {"v": target_rev})
+    actions.append(f"stamp alembic to {target_rev}")
+
+    db.session.commit()
+    return jsonify({"ok": True, "actions": actions})
+# --- END TEMP ROUTE ---
 
 @app.route("/admin/fix-schema")
 @cross_origin()

@@ -4,7 +4,7 @@ from flask_migrate import Migrate
 from flask_cors import CORS
 from sqlalchemy import func
 
-from models import db, Game, ChecklistItem, CommunityChecklist
+from models import db, Game, ChecklistItem, CommunityChecklist, CommunityChecklistItem
 from users import register_user, login_user
 from checklist import (
     add_checklist_item,
@@ -13,6 +13,8 @@ from checklist import (
     delete_checklist_item,
 )
 from werkzeug.security import generate_password_hash
+from sqlalchemy import text
+from flask_cors import cross_origin
 
 # App factory-style setup kept simple in a single file
 app = Flask(__name__)
@@ -39,10 +41,7 @@ migrate = Migrate(app, db)
 
 
 
-
 #TEMP
-from flask_cors import cross_origin
-from sqlalchemy import text
 
 @app.route("/admin/fix-schema")
 @cross_origin()
@@ -117,7 +116,7 @@ def get_game_thumbnail(game_id):
     return jsonify({
         "game_id": game.game_id,
         "thumbnail_url": game.thumbnail_url,
-        "cover_url": game.cover_url  # handy fallback for the UI
+        "cover_url": game.cover_url  # fallback
     }), 200
 
 @app.route("/api/games/thumbnails", methods=["GET"])
@@ -129,7 +128,7 @@ def list_game_thumbnails():
 
     rows = (
         q.with_entities(Game.game_id, Game.thumbnail_url, Game.cover_url)
-         .order_by(Game.game_id.desc())  # was Game.created_at.desc()
+         .order_by(Game.game_id.desc())
          .all()
     )
 
@@ -181,7 +180,7 @@ def backfill_thumbnails():
     games = q.all()
     for g in games:
         if not getattr(g, "thumbnail_url", None):
-            # prefer cover_url if present; otherwise use provided default
+            # prefer cover_url if present otherwise use provided default
             if getattr(g, "cover_url", None):
                 g.thumbnail_url = g.cover_url
                 updated += 1
@@ -226,7 +225,7 @@ def seed_community():
     else:
         user = existing_user
 
-    # Now create checklists linked to that user
+    # Create checklists linked to that user
     sample_data = [
         CommunityChecklist(
             title="Hollow Knight – 100% Completion",
@@ -402,24 +401,25 @@ def game_progress(game_id):
 # --------- Community ---------
 @app.route("/api/community", methods=["GET"])
 def list_community_checklists():
-    templates = CommunityChecklist.query.all()
-
+    templates = CommunityChecklist.query.order_by(CommunityChecklist.community_checklist_id.desc()).all()
     return jsonify([
         {
             "community_checklist_id": t.community_checklist_id,
             "title": t.title,
             "description": t.description,
             "platform": t.platform,
-            "genre": t.genre
-        }
-        for t in templates
-    ])
+            "genre": t.genre,
+            "run_type": t.run_type,
+            "tags": t.tags,
+            "thumbnail_url": t.thumbnail_url,
+            "items_count": len(t.items)
+        } for t in templates
+    ]), 200
 
 @app.route("/api/community/import/<int:template_id>", methods=["POST"])
 def import_community_checklist(template_id):
     data = request.get_json(silent=True) or {}
     user_id = data.get("user_id")
-
     if not user_id:
         return jsonify({"message": "Missing user_id"}), 400
 
@@ -427,20 +427,85 @@ def import_community_checklist(template_id):
     if not template:
         return jsonify({"message": "Template not found"}), 404
 
-    # Create new Game entry
     new_game = Game(
         user_id=user_id,
         title=template.title,
         platform=template.platform,
-        genre=template.genre
+        genre=template.genre,
+        run_type=template.run_type,
+        tags=template.tags,
+        cover_url=template.thumbnail_url,
+        thumbnail_url=template.thumbnail_url
     )
     db.session.add(new_game)
-    db.session.commit()
+    db.session.flush()
 
+    # copy items
+    for itm in template.items:
+        db.session.add(ChecklistItem(
+            game_id=new_game.game_id,
+            description=itm.description,
+            completed=False,
+            order=itm.order
+        ))
+
+    db.session.commit()
     return jsonify({
         "message": "Checklist imported",
         "new_game_id": new_game.game_id
     }), 201
+
+@app.route("/api/community", methods=["POST"])
+def create_community_checklist():
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    created_by_user_id = data.get("created_by_user_id")
+    if not title or not created_by_user_id:
+        return jsonify({"message": "created_by_user_id and non-empty title are required"}), 400
+
+    cc = CommunityChecklist(
+        title=title,
+        description=(data.get("description") or "").strip() or None,
+        platform=(data.get("platform") or "").strip() or None,
+        genre=(data.get("genre") or "").strip() or None,
+        run_type=(data.get("run_type") or "").strip() or None,
+        tags=(data.get("tags") or "").strip() or None,
+        thumbnail_url=(data.get("thumbnail_url") or "").strip() or None,
+        created_by_user_id=created_by_user_id,
+    )
+    db.session.add(cc)
+    db.session.flush()  # get cc.community_checklist_id
+
+    items = data.get("items") or []
+    order_counter = 1
+    for itm in items:
+        if isinstance(itm, dict):
+            desc = (itm.get("description") or "").strip()
+            ordv = itm.get("order")
+        else:
+            desc = str(itm).strip()
+            ordv = None
+        if not desc:
+            continue
+        db.session.add(CommunityChecklistItem(
+            community_checklist_id=cc.community_checklist_id,
+            description=desc,
+            order=ordv if isinstance(ordv, int) else order_counter
+        ))
+        order_counter += 1
+
+    db.session.commit()
+    return jsonify({
+        "message": "Community checklist created",
+        "community_checklist_id": cc.community_checklist_id
+    }), 201
+
+@app.route("/api/community/<int:template_id>", methods=["GET"])
+def get_community_checklist(template_id):
+    t = db.session.get(CommunityChecklist, template_id)
+    if not t:
+        return jsonify({"message": "Template not found"}), 404
+    return jsonify(t.to_dict(include_items=True)), 200
 
 # --------- Error Handlers ---------
 @app.errorhandler(404)
@@ -458,9 +523,6 @@ def internal_error(_):
     # Avoid leaking stack traces to clients
     return jsonify({"message": "Internal server error"}), 500
 
-
-
-from sqlalchemy import text
 
 @app.route("/admin/fix-timestamps", methods=["POST"])
 def fix_timestamps():

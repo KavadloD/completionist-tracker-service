@@ -41,6 +41,11 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db.init_app(app)
 migrate = Migrate(app, db)
 
+# Defaults
+DEFAULT_THUMB = os.environ.get(
+    "DEFAULT_THUMB_URL",
+    "https://completionist-tracker.netlify.app/images/fallback_thumbnail.png"
+)
 
 # --------- Auth ---------
 @app.route("/api/register", methods=["POST"])
@@ -151,25 +156,30 @@ def update_game(game_id):
         game.tags = (data.get("tags") or "").strip() or None
         changed = True
 
+    if "thumbnail_url" in data:
+        game.thumbnail_url = (data.get("thumbnail_url") or "").strip() or None
+        changed = True
+
+    if "cover_url" in data:
+        game.cover_url = (data.get("cover_url") or "").strip() or None
+        changed = True
+
     if not changed:
         return jsonify({"message": "no changes provided"}), 400
 
     db.session.commit()
 
-    return (
-        jsonify(
-            {
-                "game_id": game.game_id,
-                "user_id": game.user_id,
-                "title": game.title,
-                "platform": game.platform,
-                "genre": game.genre,
-                "run_type": game.run_type,
-                "tags": game.tags,
-            }
-        ),
-        200,
-    )
+    return jsonify({
+        "game_id": game.game_id,
+        "user_id": game.user_id,
+        "title": game.title,
+        "platform": game.platform,
+        "genre": game.genre,
+        "run_type": game.run_type,
+        "tags": game.tags,
+        "cover_url": game.cover_url,
+        "thumbnail_url": game.thumbnail_url,
+    }), 200
 
 
 @app.route("/api/games/<int:game_id>", methods=["DELETE"])
@@ -217,28 +227,21 @@ def list_community_checklists():
         CommunityChecklist.community_checklist_id.desc()
     ).all()
 
-    return (
-        jsonify(
-            [
-                {
-                    "community_checklist_id": t.community_checklist_id,
-                    "title": t.title,
-                    "description": t.description,
-                    "platform": t.platform,
-                    "genre": t.genre,
-                    "run_type": t.run_type,
-                    "tags": t.tags,
-                    "thumbnail_url": t.thumbnail_url,
-                    "items_count": len(t.items),
-                    "created_by_username": t.created_by_user.username
-                    if t.created_by_user
-                    else None,
-                }
-                for t in templates
-            ]
-        ),
-        200,
-    )
+    return jsonify([
+        {
+            "community_checklist_id": t.community_checklist_id,
+            "title": t.title,
+            "description": t.description,
+            "platform": t.platform,
+            "genre": t.genre,
+            "run_type": t.run_type,
+            "tags": t.tags,
+            "thumbnail_url": t.thumbnail_url or DEFAULT_THUMB,
+            "items_count": len(t.items),
+            "created_by_username": t.created_by_user.username if t.created_by_user else None,
+        }
+        for t in templates
+    ]), 200
 
 
 @app.route("/api/community/import/<int:template_id>", methods=["POST"])
@@ -357,9 +360,11 @@ def update_game_thumbnail(game_id):
 @app.route("/api/games/<int:game_id>/thumbnail", methods=["GET"])
 def get_game_thumbnail(game_id):
     game = Game.query.get_or_404(game_id)
-    return jsonify(
-        {"game_id": game.game_id, "thumbnail_url": game.thumbnail_url, "cover_url": game.cover_url}
-    ), 200
+    return jsonify({
+        "game_id": game.game_id,
+        "thumbnail_url": game.thumbnail_url or game.cover_url or DEFAULT_THUMB,
+        "cover_url": game.cover_url
+    }), 200
 
 
 @app.route("/api/games/thumbnails", methods=["GET"])
@@ -371,12 +376,12 @@ def list_game_thumbnails():
 
     rows = (
         q.with_entities(Game.game_id, Game.thumbnail_url, Game.cover_url)
-        .order_by(Game.game_id.desc())
-        .all()
+         .order_by(Game.game_id.desc())
+         .all()
     )
 
     data = [
-        {"game_id": gid, "thumbnail_url": thumb or cover, "cover_url": cover}
+        {"game_id": gid, "thumbnail_url": (thumb or cover or DEFAULT_THUMB), "cover_url": cover}
         for gid, thumb, cover in rows
     ]
     return jsonify(data), 200
@@ -390,25 +395,20 @@ def list_games_with_thumbnails():
         q = q.filter_by(user_id=user_id)
 
     games = q.all()
-    return (
-        jsonify(
-            [
-                {
-                    "game_id": g.game_id,
-                    "user_id": g.user_id,
-                    "title": g.title,
-                    "platform": g.platform,
-                    "genre": g.genre,
-                    "run_type": g.run_type,
-                    "tags": g.tags,
-                    "cover_url": g.cover_url,
-                    "thumbnail_url": getattr(g, "thumbnail_url", None) or g.cover_url,
-                }
-                for g in games
-            ]
-        ),
-        200,
-    )
+    return jsonify([
+        {
+            "game_id": g.game_id,
+            "user_id": g.user_id,
+            "title": g.title,
+            "platform": g.platform,
+            "genre": g.genre,
+            "run_type": g.run_type,
+            "tags": g.tags,
+            "cover_url": g.cover_url,
+            "thumbnail_url": (getattr(g, "thumbnail_url", None) or g.cover_url or DEFAULT_THUMB),
+        }
+        for g in games
+    ]), 200
 
 
 @app.route("/api/admin/thumbnails/backfill", methods=["POST"])

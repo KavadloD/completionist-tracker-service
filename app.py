@@ -248,9 +248,10 @@ def list_community_checklists():
             "run_type": t.run_type,
             "tags": t.tags,
             "thumbnail_url": t.thumbnail_url,
-            "items_count": len(t.items)
+            "items_count": len(t.items),
             "created_by_username": t.created_by_user.username if t.created_by_user else None,
-        } for t in templates
+        }
+        for t in templates
     ]), 200
 
 @app.route("/api/community/import/<int:template_id>", methods=["POST"])

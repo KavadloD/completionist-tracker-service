@@ -249,6 +249,7 @@ def list_community_checklists():
             "tags": t.tags,
             "thumbnail_url": t.thumbnail_url,
             "items_count": len(t.items)
+            "created_by_username": t.created_by_user.username if t.created_by_user else None,
         } for t in templates
     ]), 200
 

@@ -102,6 +102,7 @@ class CommunityChecklist(db.Model):
             "tags": self.tags,
             "thumbnail_url": self.thumbnail_url,
             "created_by_user_id": self.created_by_user_id,
+            "created_by_username": self.created_by_user.username if self.created_by_user else None,
         }
         if include_items:
             base["items"] = [i.to_dict() for i in self.items]

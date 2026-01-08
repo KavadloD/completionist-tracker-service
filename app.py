@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -20,31 +21,56 @@ from checklist import (
     delete_checklist_item,
 )
 
-# App
+# --------- Helpers ---------
+def normalize_db_url(url: str) -> str:
+    if not url:
+        return url
+
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+
+    parsed = urlparse(url)
+    q = dict(parse_qsl(parsed.query))
+
+    # Render Postgres expects SSL for external connections, and it is safe to require generally
+    q.setdefault("sslmode", "require")
+
+    return urlunparse(parsed._replace(query=urlencode(q)))
+
+
+def clean_str(value):
+    value = (value or "").strip()
+    return value or None
+
+
+# --------- App ---------
 app = Flask(__name__)
 
-# CORS
+# --------- CORS ---------
 allowed_origins = os.environ.get("CORS_ORIGINS", "*").split(",")
 CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
 
-# Database
-db_url = os.getenv(
+# --------- Database ---------
+raw_db_url = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres:postgres123@localhost/completionist_db",
 )
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
+db_url = normalize_db_url(raw_db_url)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,
+    "pool_recycle": 300,
+}
 
 db.init_app(app)
 migrate = Migrate(app, db)
 
-# Defaults
+# --------- Defaults ---------
 DEFAULT_THUMB = os.environ.get(
     "DEFAULT_THUMB_URL",
-    "https://completionist-tracker.netlify.app/images/fallback_thumbnail.png"
+    "https://completionist-tracker.netlify.app/images/fallback_thumbnail.png",
 )
 
 # --------- Auth ---------
@@ -83,6 +109,7 @@ def delete_item(item_id):
 @app.route("/api/games", methods=["POST"])
 def add_game():
     data = request.get_json(silent=True) or {}
+
     title = (data.get("title") or "").strip()
     user_id = data.get("user_id")
 
@@ -92,12 +119,12 @@ def add_game():
     game = Game(
         user_id=user_id,
         title=title,
-        platform=(data.get("platform") or "").strip() or None,
-        genre=(data.get("genre") or "").strip() or None,
-        run_type=(data.get("run_type") or "").strip() or None,
-        tags=(data.get("tags") or "").strip() or None,
-        cover_url=(data.get("cover_url") or "").strip() or None,
-        thumbnail_url=(data.get("thumbnail_url") or "").strip() or None,
+        platform=clean_str(data.get("platform")),
+        genre=clean_str(data.get("genre")),
+        run_type=clean_str(data.get("run_type")),
+        tags=clean_str(data.get("tags")),
+        cover_url=clean_str(data.get("cover_url")),
+        thumbnail_url=clean_str(data.get("thumbnail_url")),
     )
 
     db.session.add(game)
@@ -117,9 +144,11 @@ def get_game(game_id):
 @app.route("/api/games", methods=["GET"])
 def list_games():
     user_id = request.args.get("user_id", type=int)
+
     q = db.session.query(Game)
     if user_id is not None:
         q = q.filter_by(user_id=user_id)
+
     rows = q.order_by(Game.game_id.desc()).all()
     return jsonify([g.to_dict() for g in rows]), 200
 
@@ -140,29 +169,19 @@ def update_game(game_id):
         game.title = title
         changed = True
 
-    if "platform" in data:
-        game.platform = (data.get("platform") or "").strip() or None
-        changed = True
+    updatable = {
+        "platform": "platform",
+        "genre": "genre",
+        "run_type": "run_type",
+        "tags": "tags",
+        "thumbnail_url": "thumbnail_url",
+        "cover_url": "cover_url",
+    }
 
-    if "genre" in data:
-        game.genre = (data.get("genre") or "").strip() or None
-        changed = True
-
-    if "run_type" in data:
-        game.run_type = (data.get("run_type") or "").strip() or None
-        changed = True
-
-    if "tags" in data:
-        game.tags = (data.get("tags") or "").strip() or None
-        changed = True
-
-    if "thumbnail_url" in data:
-        game.thumbnail_url = (data.get("thumbnail_url") or "").strip() or None
-        changed = True
-
-    if "cover_url" in data:
-        game.cover_url = (data.get("cover_url") or "").strip() or None
-        changed = True
+    for payload_key, attr in updatable.items():
+        if payload_key in data:
+            setattr(game, attr, clean_str(data.get(payload_key)))
+            changed = True
 
     if not changed:
         return jsonify({"message": "no changes provided"}), 400
@@ -188,12 +207,12 @@ def delete_game(game_id):
     if not game:
         return jsonify({"message": "Game not found"}), 404
 
-    db.session.query(ChecklistItem).filter_by(
-        game_id=game_id
-    ).delete(synchronize_session=False)
-
+    db.session.query(ChecklistItem).filter_by(game_id=game_id).delete(
+        synchronize_session=False
+    )
     db.session.delete(game)
     db.session.commit()
+
     return jsonify({"message": "Game deleted"}), 200
 
 
@@ -217,7 +236,7 @@ def game_progress(game_id):
     done = int(done or 0)
     pct = 0 if total == 0 else round((done / total) * 100)
 
-    return jsonify({"game_id": game_id, "completed": done, "total": total, "percent": pct})
+    return jsonify({"game_id": game_id, "completed": done, "total": total, "percent": pct}), 200
 
 
 # --------- Community ---------
@@ -227,8 +246,9 @@ def list_community_checklists():
         CommunityChecklist.community_checklist_id.desc()
     ).all()
 
-    return jsonify([
-        {
+    out = []
+    for t in templates:
+        out.append({
             "community_checklist_id": t.community_checklist_id,
             "title": t.title,
             "description": t.description,
@@ -239,15 +259,16 @@ def list_community_checklists():
             "thumbnail_url": t.thumbnail_url or DEFAULT_THUMB,
             "items_count": len(t.items),
             "created_by_username": t.created_by_user.username if t.created_by_user else None,
-        }
-        for t in templates
-    ]), 200
+        })
+
+    return jsonify(out), 200
 
 
 @app.route("/api/community/import/<int:template_id>", methods=["POST"])
 def import_community_checklist(template_id):
     data = request.get_json(silent=True) or {}
     user_id = data.get("user_id")
+
     if not user_id:
         return jsonify({"message": "Missing user_id"}), 400
 
@@ -285,19 +306,21 @@ def import_community_checklist(template_id):
 @app.route("/api/community", methods=["POST"])
 def create_community_checklist():
     data = request.get_json(silent=True) or {}
+
     title = (data.get("title") or "").strip()
     created_by_user_id = data.get("created_by_user_id")
+
     if not title or not created_by_user_id:
         return jsonify({"message": "created_by_user_id and non-empty title are required"}), 400
 
     cc = CommunityChecklist(
         title=title,
-        description=(data.get("description") or "").strip() or None,
-        platform=(data.get("platform") or "").strip() or None,
-        genre=(data.get("genre") or "").strip() or None,
-        run_type=(data.get("run_type") or "").strip() or None,
-        tags=(data.get("tags") or "").strip() or None,
-        thumbnail_url=(data.get("thumbnail_url") or "").strip() or None,
+        description=clean_str(data.get("description")),
+        platform=clean_str(data.get("platform")),
+        genre=clean_str(data.get("genre")),
+        run_type=clean_str(data.get("run_type")),
+        tags=clean_str(data.get("tags")),
+        thumbnail_url=clean_str(data.get("thumbnail_url")),
         created_by_user_id=created_by_user_id,
     )
     db.session.add(cc)
@@ -305,6 +328,7 @@ def create_community_checklist():
 
     items = data.get("items") or []
     order_counter = 1
+
     for itm in items:
         if isinstance(itm, dict):
             desc = (itm.get("description") or "").strip()
@@ -312,8 +336,10 @@ def create_community_checklist():
         else:
             desc = str(itm).strip()
             ordv = None
+
         if not desc:
             continue
+
         db.session.add(
             CommunityChecklistItem(
                 community_checklist_id=cc.community_checklist_id,
@@ -338,8 +364,6 @@ def get_community_checklist(template_id):
 # --------- Thumbnails ---------
 @app.route("/api/games/<int:game_id>/thumbnail", methods=["PATCH"])
 def update_game_thumbnail(game_id):
-    from urllib.parse import urlparse
-
     game = Game.query.get_or_404(game_id)
 
     data = request.get_json(silent=True) or {}
@@ -354,7 +378,11 @@ def update_game_thumbnail(game_id):
     game.thumbnail_url = url
     db.session.commit()
 
-    return jsonify({"message": "Thumbnail updated", "game_id": game.game_id, "thumbnail_url": game.thumbnail_url}), 200
+    return jsonify({
+        "message": "Thumbnail updated",
+        "game_id": game.game_id,
+        "thumbnail_url": game.thumbnail_url
+    }), 200
 
 
 @app.route("/api/games/<int:game_id>/thumbnail", methods=["GET"])
@@ -363,21 +391,22 @@ def get_game_thumbnail(game_id):
     return jsonify({
         "game_id": game.game_id,
         "thumbnail_url": game.thumbnail_url or game.cover_url or DEFAULT_THUMB,
-        "cover_url": game.cover_url
+        "cover_url": game.cover_url,
     }), 200
 
 
 @app.route("/api/games/thumbnails", methods=["GET"])
 def list_game_thumbnails():
     user_id = request.args.get("user_id", type=int)
+
     q = Game.query
     if user_id:
         q = q.filter_by(user_id=user_id)
 
     rows = (
         q.with_entities(Game.game_id, Game.thumbnail_url, Game.cover_url)
-         .order_by(Game.game_id.desc())
-         .all()
+        .order_by(Game.game_id.desc())
+        .all()
     )
 
     data = [
@@ -390,6 +419,7 @@ def list_game_thumbnails():
 @app.route("/api/games/with-thumbnails", methods=["GET"])
 def list_games_with_thumbnails():
     user_id = request.args.get("user_id", type=int)
+
     q = db.session.query(Game)
     if user_id is not None:
         q = q.filter_by(user_id=user_id)
@@ -414,6 +444,7 @@ def list_games_with_thumbnails():
 @app.route("/api/admin/thumbnails/backfill", methods=["POST"])
 def backfill_thumbnails():
     data = request.get_json(silent=True) or {}
+
     default_url = data.get("default_url")
     user_id = request.args.get("user_id", type=int)
 
@@ -422,15 +453,18 @@ def backfill_thumbnails():
         q = q.filter(Game.user_id == user_id)
 
     updated = 0
-    games = q.all()
-    for g in games:
-        if not getattr(g, "thumbnail_url", None):
-            if getattr(g, "cover_url", None):
-                g.thumbnail_url = g.cover_url
-                updated += 1
-            elif default_url:
-                g.thumbnail_url = default_url
-                updated += 1
+    for g in q.all():
+        if getattr(g, "thumbnail_url", None):
+            continue
+
+        if getattr(g, "cover_url", None):
+            g.thumbnail_url = g.cover_url
+            updated += 1
+            continue
+
+        if default_url:
+            g.thumbnail_url = default_url
+            updated += 1
 
     db.session.commit()
     return jsonify({"updated": updated}), 200
